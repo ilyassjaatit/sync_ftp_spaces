@@ -6,7 +6,6 @@ import (
 	"github.com/joho/godotenv"
 	"log"
 	"os"
-	"reflect"
 	"time"
 )
 
@@ -27,19 +26,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	list_files, err := c.List("/")
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	for _, element := range list_files {
-		fmt.Println(element)
-		fmt.Println(element.Type)
-		fmt.Println(element.Name)
-		fmt.Println(element.Size)
-		fmt.Println(element.Time)
-		fmt.Println(element.Target)
-		fmt.Println("list_files = ", reflect.TypeOf(element))
+	w := c.Walk("/")
+	for w.Next() {
+		if w.Stat().Type == ftp.EntryTypeFolder {
+			continue
+		}
+		fmt.Println(w.Path())
 	}
-
 }
