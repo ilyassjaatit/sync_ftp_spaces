@@ -17,19 +17,23 @@ func initDb(dbPath string) {
 		log.Fatal(err)
 	}
 	sqlInit := `CREATE TABLE ftp_synchronizer (
-	id INTEGER(11) NOT NULL,
-	created_at DATETIME,
-	updated_at DATETIME,
-	ftp_path VARCHAR NOT NULL,
-	remote_path VARCHAR,
-	file_hash VARCHAR,
-	PRIMARY KEY (id)); `
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT NULL,
+		count INTEGER DEFAULT 1,
+		ftp_path VARCHAR NOT NULL UNIQUE,
+		remote_path VARCHAR,
+		type VARCHAR,
+		file_hash VARCHAR); 
+		UNIQUE KEY index_id (id) USING BTREE,
+		UNIQUE KEY index_ftp_path (ftp_path) USING BTREE,
+	`
 
 	statement, err := db.Prepare(sqlInit)
 	if err != nil {
 		log.Printf("%q: %s\n", err, sqlInit)
 		os.Remove(dbPath)
-		return
+		panic("Error create table ftp_synchronizer")
 	}
 	statement.Exec()
 	fmt.Println("OK created Table")
@@ -59,7 +63,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(db)
 	ftpHost := os.Getenv("FTP_HOST")
 	ftpPort := os.Getenv("FTP_PORT")
 	c, err := ftp.Dial(ftpHost+":"+ftpPort, ftp.DialWithTimeout(5*time.Second))
@@ -78,6 +81,20 @@ func main() {
 		if w.Stat().Type == ftp.EntryTypeFolder {
 			continue
 		}
-		fmt.Println(w.Path())
+
+		sqlTemp := `INSERT INTO ftp_synchronizer(id,ftp_path, type)
+				VALUES(NULL, ?,?) 
+		ON CONFLICT(ftp_path) DO UPDATE SET count=count+1, updated_at=CURRENT_TIMESTAMP;
+	`
+		statement, err := db.Prepare(sqlTemp)
+		if err != nil {
+			log.Printf("%q: %s\n", err, sqlTemp)
+			panic(err)
+		}
+		_, err = statement.Exec(w.Path(), "NULL")
+		if err != nil {
+			log.Printf("%q: %s\n", err, sqlTemp)
+			panic(err)
+		}
 	}
 }
