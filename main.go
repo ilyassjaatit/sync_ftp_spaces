@@ -40,6 +40,44 @@ func initDb(dbPath string) {
 	db.Close()
 }
 
+func saveFileSQLBase() string {
+	sqlTemp := `INSERT INTO ftp_synchronizer(id,ftp_path, type)
+				VALUES(NULL, ?,?) 
+		ON CONFLICT(ftp_path) DO UPDATE SET count=count+1, updated_at=CURRENT_TIMESTAMP;
+	`
+	return sqlTemp
+}
+
+func saveFilePath(db *sql.DB, w *ftp.Walker) {
+	sqlTemp := saveFileSQLBase()
+	statement, err := db.Prepare(sqlTemp)
+	if err != nil {
+		log.Printf("%q: %s\n", err, sqlTemp)
+		panic(err)
+	}
+	_, err = statement.Exec(w.Path(), "dir")
+	if err != nil {
+		log.Printf("%q: %s\n", err, sqlTemp)
+		panic(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+}
+
+func saveDirPath(db *sql.DB, w *ftp.Walker) {
+	sqlTemp := saveFileSQLBase()
+	statement, err := db.Prepare(sqlTemp)
+	if err != nil {
+		log.Printf("%q: %s\n", err, sqlTemp)
+		panic(err)
+	}
+	_, err = statement.Exec(w.Path(), "file")
+	if err != nil {
+		log.Printf("%q: %s\n", err, sqlTemp)
+		panic(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+}
+
 func main() {
 	// start sql
 	errEnv := godotenv.Load()
@@ -81,20 +119,6 @@ func main() {
 		if w.Stat().Type == ftp.EntryTypeFolder {
 			continue
 		}
-
-		sqlTemp := `INSERT INTO ftp_synchronizer(id,ftp_path, type)
-				VALUES(NULL, ?,?) 
-		ON CONFLICT(ftp_path) DO UPDATE SET count=count+1, updated_at=CURRENT_TIMESTAMP;
-	`
-		statement, err := db.Prepare(sqlTemp)
-		if err != nil {
-			log.Printf("%q: %s\n", err, sqlTemp)
-			panic(err)
-		}
-		_, err = statement.Exec(w.Path(), "NULL")
-		if err != nil {
-			log.Printf("%q: %s\n", err, sqlTemp)
-			panic(err)
-		}
+		saveFilePath(db, w)
 	}
 }
