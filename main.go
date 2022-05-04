@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/list"
 	"database/sql"
 	"fmt"
 	"github.com/jlaffaye/ftp"
@@ -98,6 +99,7 @@ func main() {
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
+	log.Printf("%q: %s\n", err, db)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,17 +110,34 @@ func main() {
 		log.Fatal(err)
 	}
 	ftpUser := os.Getenv("FTP_USER")
-	ftpPAssword := os.Getenv("FTP_PASSWORD")
-	err = c.Login(ftpUser, ftpPAssword)
+	ftpPassword := os.Getenv("FTP_PASSWORD")
+	err = c.Login(ftpUser, ftpPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	w := c.Walk("/")
+	index := 0
 	for w.Next() {
+		if index == 10 {
+			break
+		}
+
+		queueDirPach := list.New()
+		queueFilesPach := list.New()
 		if w.Stat().Type == ftp.EntryTypeFolder {
+			queueDirPach.PushBack(w.Path())
+			index = index + 1
 			continue
 		}
-		saveFilePath(db, w)
+		queueFilesPach.PushBack(w.Path())
+		index = index + 1
+		//saveFilePath(db, w)
+		if index == 10 {
+			front := queueDirPach.Front()
+			fmt.Println(front.Value)
+			break
+		}
+
 	}
 }
