@@ -1,7 +1,6 @@
 package main
 
 import (
-	"container/list"
 	"database/sql"
 	"fmt"
 	"github.com/jlaffaye/ftp"
@@ -49,34 +48,68 @@ func saveFileSQLBase() string {
 	return sqlTemp
 }
 
-func saveFilePath(db *sql.DB, w *ftp.Walker) {
+func savePath(db *sql.DB, path string, file_type ftp.EntryType) {
 	sqlTemp := saveFileSQLBase()
 	statement, err := db.Prepare(sqlTemp)
 	if err != nil {
 		log.Printf("%q: %s\n", err, sqlTemp)
 		panic(err)
 	}
-	_, err = statement.Exec(w.Path(), "dir")
+	_, err = statement.Exec(path, file_type)
 	if err != nil {
 		log.Printf("%q: %s\n", err, sqlTemp)
 		panic(err)
 	}
-	time.Sleep(10 * time.Millisecond)
 }
 
-func saveDirPath(db *sql.DB, w *ftp.Walker) {
-	sqlTemp := saveFileSQLBase()
-	statement, err := db.Prepare(sqlTemp)
+func firstScan(dbPath string) {
+	db, err := sql.Open("sqlite3", dbPath)
+	db.SetMaxOpenConns(100)
+	ftpHost := os.Getenv("FTP_HOST")
+	ftpPort := os.Getenv("FTP_PORT")
+	c, err := ftp.Dial(ftpHost+":"+ftpPort, ftp.DialWithTimeout(5*time.Second))
 	if err != nil {
-		log.Printf("%q: %s\n", err, sqlTemp)
-		panic(err)
+		log.Fatal(err)
 	}
-	_, err = statement.Exec(w.Path(), "file")
+	ftpUser := os.Getenv("FTP_USER")
+	ftpPassword := os.Getenv("FTP_PASSWORD")
+	err = c.Login(ftpUser, ftpPassword)
 	if err != nil {
-		log.Printf("%q: %s\n", err, sqlTemp)
-		panic(err)
+		log.Fatal(err)
 	}
-	time.Sleep(10 * time.Millisecond)
+	w := c.Walk("/")
+	ch := make(chan ftp.Walker, 10)
+	for w.Next() {
+		if w.Stat().Type != ftp.EntryTypeFolder {
+			continue
+		}
+		ch <- *w
+		go saveOrUpdate(db, ch)
+		if cap(ch) > 9 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	close(ch)
+}
+
+func saveOrUpdate(db *sql.DB, c <-chan ftp.Walker) {
+	item := <-c
+	if item.Stat().Type == ftp.EntryTypeFolder {
+		go createDir(item.Path())
+	}
+	//savePath(db, item.Path(), item.Stat().Type)
+}
+
+func createDir(path string) {
+	basePath := os.Getenv("SYNC_BASE_PATH")
+	_, err := os.Stat(basePath + path)
+	if os.IsNotExist(err) {
+		err := os.Mkdir(basePath+path, 0755)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	time.Sleep(10 * time.Microsecond)
 }
 
 func main() {
@@ -96,48 +129,10 @@ func main() {
 
 	if dbInit == true {
 		initDb(dbPath)
+		firstScan(dbPath)
 	}
 
-	db, err := sql.Open("sqlite3", dbPath)
-	log.Printf("%q: %s\n", err, db)
 	if err != nil {
 		log.Fatal(err)
-	}
-	ftpHost := os.Getenv("FTP_HOST")
-	ftpPort := os.Getenv("FTP_PORT")
-	c, err := ftp.Dial(ftpHost+":"+ftpPort, ftp.DialWithTimeout(5*time.Second))
-	if err != nil {
-		log.Fatal(err)
-	}
-	ftpUser := os.Getenv("FTP_USER")
-	ftpPassword := os.Getenv("FTP_PASSWORD")
-	err = c.Login(ftpUser, ftpPassword)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	w := c.Walk("/")
-	index := 0
-	for w.Next() {
-		if index == 10 {
-			break
-		}
-
-		queueDirPach := list.New()
-		queueFilesPach := list.New()
-		if w.Stat().Type == ftp.EntryTypeFolder {
-			queueDirPach.PushBack(w.Path())
-			index = index + 1
-			continue
-		}
-		queueFilesPach.PushBack(w.Path())
-		index = index + 1
-		//saveFilePath(db, w)
-		if index == 10 {
-			front := queueDirPach.Front()
-			fmt.Println(front.Value)
-			break
-		}
-
 	}
 }
