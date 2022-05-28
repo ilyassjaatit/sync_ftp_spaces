@@ -21,3 +21,6 @@
 
 
 database.db
+
+./sync
+!./sync/.gitkeep
