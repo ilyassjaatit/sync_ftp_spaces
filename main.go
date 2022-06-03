@@ -6,6 +6,7 @@ import (
 	"github.com/jlaffaye/ftp"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -80,11 +81,32 @@ func firstScan(dbPath string) {
 	w := c.Walk("/")
 	ch := make(chan ftp.Walker, 10)
 	for w.Next() {
-		if w.Stat().Type != ftp.EntryTypeFolder {
-			continue
-		}
 		ch <- *w
-		go saveOrUpdate(db, ch)
+		if w.Stat().Type == ftp.EntryTypeFolder {
+			go saveOrUpdate(db, ch)
+		}
+
+		if w.Stat().Type == ftp.EntryTypeFile {
+			func() {
+				basePath := os.Getenv("SYNC_BASE_PATH")
+				res, err := c.Retr(w.Path())
+				if err != nil {
+					panic(err)
+				}
+				defer res.Close()
+				outFile, err := os.Create(basePath + w.Path())
+				if err != nil {
+					log.Fatal(err)
+				}
+				defer outFile.Close()
+				_, err = io.Copy(outFile, res)
+				if err != nil {
+					log.Fatal(err)
+				}
+				fmt.Println(basePath + w.Path())
+			}()
+
+		}
 		if cap(ch) > 9 {
 			time.Sleep(10 * time.Millisecond)
 		}
